@@ -1,244 +1,253 @@
-# Agent Starter
+# Agent Production
 
-![npm i agents command](./npm-agents-banner.svg)
+Cloudflare Workers 上的 AI Agent **生產化模板**，由 [cloudflare/agents-starter](https://github.com/cloudflare/agents-starter) 改造而來。
 
-<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/agents-starter"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"/></a>
+同一套 agent 同時提供兩種入口：
 
-A starter template for building AI chat agents on Cloudflare, powered by the [Agents SDK](https://developers.cloudflare.com/agents/).
+| 入口 | 用途 | 傳輸 |
+|------|------|------|
+| `/agents/*` | 面向終端使用者的聊天產品（附 Kumo UI） | WebSocket + HTTP assets |
+| `/v1/chat/completions` | 給其他 AI agent / 外部系統呼叫（headless） | OpenAI 相容 REST，可串流 |
 
-Uses Workers AI (no API key required), with tools for weather, timezone detection, calculations with approval, task scheduling, and vision (image input).
+底層是 Agents SDK 的 `AIChatAgent`（Durable Object + SQLite），因此具備工具調用、多步推理、排程任務、MCP 整合與斷線復原能力 —— 不只是聊天機器人。
 
 ## Quick start
 
 ```bash
-npx create-cloudflare@latest --template cloudflare/agents-starter
-cd agents-starter
+git clone <this-repo> && cd agents-production
 npm install
-npm run dev
+
+# 建立 D1 database 並套用 schema
+wrangler d1 create prod-agent-db          # 把回傳的 database_id 填入 wrangler.jsonc
+wrangler d1 execute prod-agent-db --local --file=./schema.sql
+
+# 產生一組 API key（會印出明文，只显示一次，請自行保存）
+wrangler dev --remote                      # 另開終端機執行
+curl -X POST http://localhost:8787/v1/admin/keys \
+  -H "x-admin-secret: $ADMIN_SECRET" \
+  -d '{"name":"ci-bot","scopes":["chat"]}'
+
+npm run dev                                # 開啟 http://localhost:5173
 ```
 
-> **Cloudflare authentication is required to run locally.** This template uses
-> Workers AI with `"ai": { "remote": true }` in `wrangler.jsonc`, and Workers AI
-> has no local simulator — so `npm run dev` opens a remote proxy session against
-> Cloudflare and needs you to be authenticated. Either run `wrangler login` once
-> in an interactive terminal, or set a `CLOUDFLARE_API_TOKEN` environment
-> variable (e.g. in a `.env` file). No third-party (OpenAI/Anthropic) key is
-> needed, but a Cloudflare login is.
+> **本機也需要 Cloudflare 身分驗證。** Workers AI 沒有本地模擬器（`"ai": { "remote": true }`），所以 `wrangler dev` 會開一條遠端代理 session。先跑一次 `wrangler login`，或在 `.env` 設定 `CLOUDFLARE_API_TOKEN`。不需要 OpenAI/Anthropic 的金鑰。
 
-Open [http://localhost:5173](http://localhost:5173) to see your agent in action.
+試用提示：
 
-Try these prompts to see the different features:
+- **"What's the weather in Paris?"** — server-side 工具（自動執行，真實資料來自 Open-Meteo）
+- **"What timezone am I in?"** — client-side 工具（瀏覽器回填；headless 情境下不會註冊）
+- **"Calculate 5000 * 3"** — approval 工具（超過門檻要先按同意；headless 情境下會被剔除）
+- **"Remind me in 5 minutes to take a break"** — 排程
+- **拖一張圖問「這是什麼？」** — vision
 
-- **"What's the weather in Paris?"** — server-side tool (runs automatically)
-- **"What timezone am I in?"** — client-side tool (browser provides the answer)
-- **"Calculate 5000 \* 3"** — approval tool (asks you before running)
-- **"Remind me in 5 minutes to take a break"** — scheduling
-- **Drop an image and ask "What's in this image?"** — vision (image understanding)
+## Headless / agent-to-agent 用法
+
+不需要任何 SDK，任何能發 HTTP 的程式都能接：
+
+```bash
+curl https://<worker>.workers.dev/v1/chat/completions \
+  -H "authorization: Bearer $AGENT_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "agent",
+    "user": "session-42",
+    "stream": true,
+    "messages": [{"role":"user","content":"幫我查台北現在的天氣"}]
+  }'
+```
+
+- `user` 欄位當作 session 路由鍵：同值會打到同一個 Durable Object instance，因而共享對話歷史。不傳則每次都是新 session。
+- `stream: true` 回傳標準 OpenAI SSE chunk（含 `usage`）；`false` 回傳完整 JSON。
+- 回覆內容是 Markdown，code fence 完整保留 —— 下游要自己渲染。
+- 也可用 `?token=` query 參數（需 `ALLOW_QUERY_TOKEN=true`），方便無法設定 header 的 client。
+
+OpenAI 官方 SDK 直接改 baseURL 即可通用：
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="https://<worker>.workers.dev/v1", api_key=os.environ["AGENT_API_KEY"])
+r = client.chat.completions.create(model="agent", user="s1",
+        messages=[{"role":"user","content":"hello"}])
+```
+
+第三種途徑是 Agents SDK 的原生 RPC（型別安全、低延遲），適合 Cloudflare 內部的其他 agent：
+
+```ts
+import { getAgentByName } from "agents";
+const stub = await getAgentByName<ChatAgent>(env.ChatAgent, "session-42");
+const result = await stub.processHeadless(messages, { signal });
+```
 
 ## Project structure
 
 ```
 src/
-  server.ts    # Chat agent with tools and scheduling
-  app.tsx      # Chat UI built with Kumo components
-  client.tsx   # React entry point
-  styles.css   # Tailwind + Kumo styles
+  server.ts             # Worker entry：路由分派、auth、rate limit、CORS
+  agent/chat-agent.ts   # ChatAgent（AIChatAgent）：LLM 編排、工具、headless 入口
+  tools/                # 可插拔工具 registry（每個 ToolGroup 一個檔）
+    index.ts            # buildToolSet()：依 config + interactive 過濾
+    weather.ts  calculate.ts  http-fetch.ts  schedule.ts  timezone.ts
+  lib/
+    config.ts           # 全部行為都由 env vars 驅動
+    auth.ts             # API key（SHA-256 存 D1）+ Cloudflare Access JWT
+    rate-limit.ts       # RPM 限流（記憶體快取 + write-behind 到 D1）
+    ssrf.ts             # guardedFetch：白名單 + 私網/metadata 阻擋 + 逐跳重導向驗證
+    resilience.ts       # withTimeout / withRetry / CircuitBreaker
+    errors.ts           # AppError + 穩定錯誤碼 → HTTP status 對應
+    logger.ts           # NDJSON 結構化日誌，自動遮罩金鑰類欄位
+    openai.ts           # OpenAI 相容協定的解析與 SSE 序列化
+  app.tsx               # Kumo 聊天 UI
+  client.tsx  styles.css
+schema.sql              # D1：api_keys / rate_limits / usage_events
+wrangler.jsonc
 ```
 
-## What's included
+## What's included（相對 starter 的新增）
 
-- **AI Chat** — Streaming responses powered by Workers AI via `AIChatAgent`
-- **Image input** — Drag-and-drop, paste, or click to attach images for vision-capable models
-- **Three tool patterns** — server-side auto-execute, client-side (browser), and human-in-the-loop approval
-- **Scheduling** — one-time, delayed, and recurring (cron) tasks
-- **Reasoning display** — shows model thinking as it streams, collapses when done
-- **Debug mode** — toggle in the header to inspect raw message JSON for each message
-- **Kumo UI** — Cloudflare's design system with dark/light mode
-- **Real-time** — WebSocket connection with automatic reconnection and message persistence
+### 🔒 安全
+- **API key 認證**：只存 SHA-256 hash，不比對明文；key 帶 scopes（`chat` / `history` / `schedule` / `admin` / `*`）與獨立 RPM 上限。
+- **Cloudflare Access 支援**：設定 `CF_ACCESS_JWT_AUD` 後，`/agents/*` 瀏覽器流量可用 Access 身分取代自建登入。
+- **Rate limiting**：每分鐘請求數限制，超限回 `429` + `Retry-After`。未通過認證的請求也走 IP bucket，提高暴力猜鑰成本。
+- **SSRF 防護**：`http_fetch` 與所有模型可控 URL 一律經 `guardedFetch`——僅 HTTPS、域名白名單、拒絕 loopback/RFC1918/CGNAT/link-local/multicast/雲 metadata、`.local`/`.internal` 等內部 TLD，且**手動逐跳跟隨重導向並重新驗證**（否則 302 就能繞過全部檢查）。
+- **Payload 防禦**：訊息數量與單則字數上限、回應大小硬上限、错误不外洩 stack trace。
+- **CORS**：預設封閉，靠 `ALLOWED_ORIGINS` 白名單放行。
 
-## Making it your own
+### 🔄 可靠性
+- `withTimeout` 包住每一次 LLM 與工具呼叫，超時不再無限掛住 turn。
+- `withRetry` 指數退避 + jitter，只对可重試錯誤（5xx/429/網路层）生效；4xx 立即失敗不浪費配額。
+- `CircuitBreaker` 隔開持續故障的上游，避免雪崩。
+- 工具初始化或單一群組載入失敗**不會**讓整個 agent 起不來，只會記在 load report 裡。
+- 排程任務失敗有重試預算；用 `broadcast()` 而非 `saveMessages()` 通知，避免 AI 把通知當新 context 重複觸發同一任務而死迴圈。
+- 沿用 SDK 的 `chatRecovery`：DO 休眠/重啟後接回未完成的串流。
 
-### Name your project
+### ⚙️ 配置化（不改 code 就能調）
+所有行為走 `wrangler.jsonc` 的 `[vars]` 或 secrets，啟動時由 `resolveConfig()` 驗證並對越界值發出 warning（詳見下方變數表）。包含模型 id、system prompt、temperature/top_p/max tokens、timeout、max steps、啟用哪些工具、域名白名單、MCP servers、CORS、限流、日誌等級。
 
-Update the name in `package.json` and `wrangler.jsonc` — the `name` in `wrangler.jsonc` becomes your deployed Worker's URL (`<name>.<subdomain>.workers.dev`).
+###  工具架構
+寫一個 `ToolGroup`（`{ name, create(ctx), clientOnly?, requiresApproval? }`）丟進 `src/tools/index.ts` 的 `REGISTRY` 即可，不必碰 agent 核心。registry 會自動處理三件事：
 
-### Change the system prompt
+1. 不在 `ENABLED_TOOLS` 內 → 跳過
+2. `clientOnly` 且非互動（API/headless）→ 跳過（否則模型會等一個永遠不來的瀏覽器回覆）
+3. `requiresApproval` 且非互動 → 跳過（沒人可按「同意」）
 
-Edit the `system` string in `server.ts` to give your agent a different personality or focus area. This is the most impactful single change you can make.
+demo 工具已換成真實實作：`getWeather` 改用 Open-Meteo（免 key，兩段式 geocoding + forecast，WMO code 轉成人類可讀描述）；新增 `http_fetch` 作為安全的通用抓取工具。
 
-### Replace the demo tools with real ones
+### 🤖 Agent-to-Agent
+- `/v1/chat/completions`（OpenAI 相容，串流/非串流皆可）
+- `@callable()` RPC 方法（`processHeadless`、`addServer`、`removeServer`、`getStats`）
+- MCP client 整合：`MCP_SERVERS` 自動連線，或用 `addServer` 動態掛載
 
-The starter ships with demo tools (`getWeather` returns random data, `calculate` does basic arithmetic). Replace them with real implementations:
+### 📊 可觀察性
+NDJSON 結構化日誌（`ts`/`level`/`msg` + 上下文欄位），自動遮罩任何名字含 key/token/secret/password/authorization/cookie/credential 的值。用量事件寫入 D1 `usage_events`（prompt/completion tokens、model、principal、request id），可直接用 D1 SQL 做成本報表。
+
+## Configuration variables
+
+| 變數 | 預設 | 說明 |
+|------|------|------|
+| `ENVIRONMENT` | `development` | 環境標籤，進入日誌 |
+| `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+| `AGENT_MODEL` | `@cf/moonshotai/kimi-k2.7-code` | Workers AI 模型 id |
+| `AGENT_SYSTEM_PROMPT` | 內建 | 覆蓋 system prompt（影響最大的單一調整） |
+| `LLM_TEMPERATURE` / `LLM_TOP_P` | 模型預設 | 採樣參數 |
+| `LLM_MAX_OUTPUT_TOKENS` | 不限 | 輸出 token 上限 |
+| `LLM_TIMEOUT_MS` | `60000` | 單次 LLM 呼叫 timeout |
+| `MAX_STEPS` | `20` | 一輪對話允許的最大 tool step |
+| `MAX_PERSISTED_MESSAGES` | `100` | SQLite 保留訊息數（超出淘汰最舊） |
+| `CHAT_RECOVERY` | `true` | DO 重啟後是否接回未完成串流 |
+| `ENABLED_TOOLS` | 全部 | 逗號分隔：`weather,timezone,calculate,http_fetch,schedule`；空字串＝只用 MCP |
+| `TOOL_TIMEOUT_MS` | `15000` | 單一工具執行 timeout |
+| `TOOL_MAX_RETRIES` | `2` | 上游 HTTP 重試次數 |
+| `HTTP_ALLOWED_HOSTS` | 空 | `http_fetch` 域名白名單（逗號分隔）；空＝僅靠私網阻擋清單 |
+| `MCP_SERVERS` | 空 | 啟動時自動連線的 MCP server URL（逗號分隔） |
+| `ALLOWED_ORIGINS` | 空 | CORS 放行來源；`*` 全放行（不建議用於生產） |
+| `RATE_LIMIT_RPM` | `60` | 全域每分鐘請求上限 |
+| `CF_ACCESS_JWT_AUD` | 空 | 設定後 `/agents/*` 要求 Cloudflare Access 身分 |
+| `ALLOW_QUERY_TOKEN` | `false` | 是否允許 `?token=` 代替 header |
+| `SCHEDULE_MAX_RETRIES` | `3` | 排程任務失敗重試次數 |
+| `API_MAX_MESSAGES` | `100` | 單一 API 請求最大訊息數 |
+| `API_MAX_CONTENT_CHARS` | `64000` | 單則訊息最大字數 |
+
+secrets（用 `wrangler secret put`，不要放 vars）：`ADMIN_SECRET`（管理端點保護）、各 provider 的 API key（若不用 Workers AI）。
+
+## Long conversations: what actually happens
+
+不會被硬截斷，但有刻意管理的機制：
+
+- `maxPersistedMessages`（預設 100）之後淘汰最舊訊息。
+- 每次送模型前跑 `pruneMessages()`：只保留最近 2 則之前的 tool call 結果、最近 1 則之前的 reasoning。也就是**長對話中早期的工具輸出與思考鏈會被壓縮**，但對話文字本身保留。這是為了不撐爆 context window。
+- 串流斷線可復原（`chatRecovery`），正在生成的回覆不會遺失。
+
+短中期對話完全沒問題；超長對話早期細節會被精簡，但不會切掉。
+
+## Adding a tool
 
 ```ts
-// In server.ts, replace a demo tool with a real API call:
-getWeather: tool({
-  description: "Get the current weather for a city",
-  inputSchema: z.object({ city: z.string() }),
-  execute: async ({ city }) => {
-    const res = await fetch(`https://api.weather.example/${city}`);
-    return res.json();
-  }
-}),
+// src/tools/my-tool.ts
+import { tool } from "ai";
+import { z } from "zod";
+import type { ToolGroup } from "./types.ts";
+
+const myGroup: ToolGroup = {
+  name: "my_capability",
+  // clientOnly: true,      // 需要瀏覽器回填 → headless 自動剔除
+  // requiresApproval: true,// 需要人工核准 → headless 自動剔除
+  create: (ctx) => ({
+    doThing: tool({
+      description: "...",
+      inputSchema: z.object({ id: z.string() }),
+      execute: async ({ id }) => {
+        // ctx.env / ctx.config / ctx.log / ctx.capabilities / ctx.signal
+        return { ok: true };
+      }
+    })
+  })
+};
+export default myGroup;
 ```
 
-### Add your own tools
+然後加進 `src/tools/index.ts` 的 `REGISTRY`，並在 `ENABLED_TOOLS` 補上 `my_capability`。
 
-Add new tools to the `tools` object in `server.ts`. There are three patterns:
+## Scheduled tasks
 
-```ts
-// Auto-execute: runs on the server, no user interaction
-myTool: tool({
-  description: "...",
-  inputSchema: z.object({ /* ... */ }),
-  execute: async (input) => { /* return result */ }
-}),
+`executeTask(description, task)` 在 server 端執行實際工作，完成後用 `this.broadcast()` 推一次性事件給連線客戶端（UI 顯示為 toast）。**不要用 `saveMessages()`** —— 注入 chat history 會讓 AI 把通知當成新 context，可能反覆觸發同一任務。
 
-// Client-side: no execute function, browser provides the result
-// Handle it in app.tsx via the onToolCall callback
-browserTool: tool({
-  description: "...",
-  inputSchema: z.object({ /* ... */ })
-}),
+不需要排程就把 `schedule` 從 `ENABLED_TOOLS` 拿掉即可，無需刪 code。
 
-// Approval: add needsApproval to gate execution
-sensitiveTool: tool({
-  description: "...",
-  inputSchema: z.object({ /* ... */ }),
-  needsApproval: async (input) => true, // or conditional logic
-  execute: async (input) => { /* runs after approval */ }
-}),
-```
+## Using a different model provider
 
-### Customize scheduled task behavior
-
-When a scheduled task fires, `executeTask` runs on the server. It does its work and then uses `this.broadcast()` to notify connected clients (shown as a toast notification in the UI). Replace it with your own logic:
-
-```ts
-async executeTask(description: string, task: Schedule<string>) {
-  // Do the actual work
-  await sendEmail({ to: "user@example.com", subject: description });
-
-  // Notify connected clients
-  this.broadcast(
-    JSON.stringify({ type: "scheduled-task", description, timestamp: new Date().toISOString() })
-  );
-}
-```
-
-> **Why `broadcast()` instead of `saveMessages()`?** Injecting into chat history can cause the AI to see the notification as new context and re-trigger the same task in a loop. `broadcast()` sends a one-off event that the client displays separately from the conversation.
-
-### Remove scheduling
-
-If you don't need scheduling, remove `scheduleTask`, `getScheduledTasks`, and `cancelScheduledTask` from the tools object, the `executeTask` method, and the schedule-related imports (`getSchedulePrompt`, `scheduleSchema`, `Schedule`).
-
-### Add state beyond chat messages
-
-Use `this.setState()` and `this.state` for real-time state that syncs to all connected clients. See [Store and sync state](https://developers.cloudflare.com/agents/api-reference/store-and-sync-state/).
-
-### Add callable methods
-
-Expose agent methods as typed RPC that your client can call directly:
-
-```ts
-import { callable } from "agents";
-
-export class ChatAgent extends AIChatAgent<Env> {
-  @callable()
-  async getStats() {
-    return { messageCount: this.messages.length };
-  }
-}
-
-// Client-side:
-const stats = await agent.call("getStats");
-```
-
-See [Callable methods](https://developers.cloudflare.com/agents/api-reference/callable-methods/).
-
-### Connect to MCP servers
-
-Add external tools from MCP servers:
-
-```ts
-async onChatMessage(onFinish, options) {
-  // Connect to an MCP server
-  await this.mcp.connect("https://my-mcp-server.example/sse");
-
-  const result = streamText({
-    // ...
-    tools: {
-      ...myTools,
-      ...this.mcp.getAITools() // Include MCP tools
-    }
-  });
-}
-```
-
-See [MCP Client API](https://developers.cloudflare.com/agents/api-reference/mcp-client-api/).
-
-## Use a different AI model provider
-
-The starter uses [Workers AI](https://developers.cloudflare.com/workers-ai/) by default (no API key needed). To use a different provider:
-
-### OpenAI
+預設走 Workers AI（不需第三方 API key）。要換供應商就在 `src/agent/chat-agent.ts` 裡替換 model：
 
 ```bash
-npm install @ai-sdk/openai
+npm install @ai-sdk/openai     # 或 @ai-sdk/anthropic
 ```
-
 ```ts
-// In server.ts, replace the model:
 import { openai } from "@ai-sdk/openai";
-
-// Inside onChatMessage:
-const result = streamText({
-  model: openai("gpt-5.2")
-  // ...
-});
+// const model = openai("gpt-5.2");
 ```
-
-Create a `.env` file with your API key:
-
-```
-OPENAI_API_KEY=your-key-here
-```
-
-### Anthropic
-
-```bash
-npm install @ai-sdk/anthropic
-```
-
-```ts
-import { anthropic } from "@ai-sdk/anthropic";
-
-const result = streamText({
-  model: anthropic("claude-sonnet-4-20250514")
-  // ...
-});
-```
-
-Create a `.env` file with your API key:
-
-```
-ANTHROPIC_API_KEY=your-key-here
-```
+再用 `wrangler secret put OPENAI_API_KEY` 放入金鑰（不要寫進 `[vars]`）。
 
 ## Deploy
 
 ```bash
-npm run deploy
+wrangler d1 execute prod-agent-db --remote --file=./schema.sql
+wrangler deploy
 ```
 
-Your agent is live on Cloudflare's global network. Messages persist in SQLite, streams resume on disconnect, and the agent hibernates when idle.
+Agent 就上線於 Cloudflare 全球網路：訊息存 SQLite、串流斷線可復原、閒置時休眠（休眠期間不收 duration 費用）。
+
+### Plan considerations
+
+Workers **Free** plan 也能跑：Durable Objects 的 SQLite backend 在 Free 方案可用，而 Free 唯一不支援的是 legacy key-value backend（本專案沒用到）。要注意的免費額度上限是每日 100,000 requests、13,000 GB-s duration、5 million rows read / 100,000 rows written、5 GB 儲存。
+
+實務提醒：WebSocket 保持連線期間會持續計 duration，長期在線的使用者多的話费用会长得比預期快 —— 若要放大規模建議搭配 WebSocket Hibernation 或直接上 Paid plan。另外 SQLite 儲存的計費自 2026-01 起開始生效。
 
 ## Learn more
 
 - [Agents SDK documentation](https://developers.cloudflare.com/agents/)
-- [Build a chat agent tutorial](https://developers.cloudflare.com/agents/getting-started/build-a-chat-agent/)
 - [Chat agents API reference](https://developers.cloudflare.com/agents/api-reference/chat-agents/)
+- [Durable Objects pricing & limits](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 - [Workers AI models](https://developers.cloudflare.com/workers-ai/models/)
+- [MCP Client API](https://developers.cloudflare.com/agents/api-reference/mcp-client-api/)
 
 ## License
 

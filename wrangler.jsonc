@@ -23,5 +23,16 @@
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
     }
-  ]
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "prod-agent-db",
+      "database_id": "REPLACE_WITH_DATABASE_ID",
+      "preview_database_id": "REPLACE_WITH_PREVIEW_DATABASE_ID"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
 }

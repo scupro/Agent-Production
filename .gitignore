@@ -142,3 +142,7 @@ dist
 .wrangler
 .dev.vars
 
+
+# deploy keys (private key must never be committed)
+.deploy/
+.dev.vars
