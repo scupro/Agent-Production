@@ -228,8 +228,43 @@ import { openai } from "@ai-sdk/openai";
 
 ## Deploy
 
+### 一次性的前置作業（本機）
+
 ```bash
+wrangler d1 create prod-agent-db      # 把回傳的 database_id 填入 wrangler.jsonc
 wrangler d1 execute prod-agent-db --remote --file=./schema.sql
+
+# App 機密：從 stdin 讀取，不會出現在終端機歷史或程式碼裡
+wrangler secret put OPENAI_API_KEY
+wrangler secret put ADMIN_SECRET
+
+git add wrangler.jsonc
+git commit -m "chore: bind D1 database"
+```
+
+> `database_id` 是資源識別碼、不是憑證（知道它也無法存取資料），可以明文提交。
+> 真正的機密（`CLOUDFLARE_API_TOKEN`、`OPENAI_API_KEY`、`ADMIN_SECRET`）都留在
+> Cloudflare 與 GitHub 的加密 secret 儲存處，不會進入 repo。
+
+### GitHub Actions 自動部署
+
+`.github/workflows/deploy.yml` 會在 **push 到 `main`**（或手動 workflow_dispatch）時自動：
+
+1. `npm ci` 安裝依賴
+2. 套用 `schema.sql` 到遠端 D1（冪等，可安全重複執行）
+3. `wrangler deploy`
+
+啟動方式：在 GitHub repo 的 **Settings → Secrets and variables → Actions → New repository secret** 新增：
+
+| Secret | 說明 | Token 所需權限 |
+|--------|------|----------------|
+| `CLOUDFLARE_API_TOKEN` | 部署用 API token（Dashboard → My Profile → API Tokens → Create Token） | `Account:Read`、`Workers Scripts:Edit`、`D1:Edit`（或直接用 Account:Edit） |
+
+**不需要**把 `OPENAI_API_KEY` / `ADMIN_SECRET` 放進 GitHub secret —— 它們已用 `wrangler secret put` 存在 Worker 上，每次部署都會保留。
+
+### 手動部署（本機）
+
+```bash
 wrangler deploy
 ```
 
