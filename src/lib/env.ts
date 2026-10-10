@@ -19,8 +19,14 @@ export interface ProductionBindings {
 export interface ProductionVars {
   /** 執行環境標籤，用於日誌與行為差異（development | staging | production）。 */
   ENVIRONMENT?: string;
+  /** LLM 後端：workers-ai（預設，用 AI binding）或 openai（OpenAI 相容端點）。 */
+  LLM_PROVIDER?: string;
   /** Workers AI 模型 id，例如 "@cf/moonshotai/kimi-k2.7-code"。 */
   AGENT_MODEL?: string;
+  /** OpenAI 相容端點的 API key（wrangler secret put OPENAI_API_KEY）。 */
+  OPENAI_API_KEY?: string;
+  /** OpenAI 相容端點 base URL，預設 https://api.openai.com/v1。 */
+  OPENAI_BASE_URL?: string;
   /** 覆蓋內建 system prompt。 */
   AGENT_SYSTEM_PROMPT?: string;
   /** temperature / top_p / 最大輸出 token。 */

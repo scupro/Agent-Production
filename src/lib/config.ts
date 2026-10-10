@@ -1,3 +1,4 @@
+import { AppError } from "./errors.ts";
 import type { WorkerEnv } from "./env.ts";
 
 /** 可插拔的內建工具名稱。用 ENABLED_TOOLS 控制要載入哪些。 */
@@ -11,8 +12,17 @@ export const TOOL_NAMES = [
 
 export type ToolName = (typeof TOOL_NAMES)[number];
 
+/** LLM 後端種類。 */
+export type LlmProvider = "workers-ai" | "openai";
+
 export interface LlmConfig {
+  /** 用哪個 LLM 後端。 */
+  provider: LlmProvider;
   model: string;
+  /** OpenAI 相容端點的 base URL（provider === "openai" 時）。 */
+  baseUrl: string;
+  /** OpenAI 相容端點的 API key（來自 Worker secret，不應進日誌）。 */
+  apiKey: string;
   systemPrompt: string;
   temperature: number;
   topP: number;
@@ -142,10 +152,49 @@ export function resolveConfig(env: WorkerEnv): AgentConfig {
   const model = (env.AGENT_MODEL ?? "@cf/moonshotai/kimi-k2.7-code").trim();
   const systemPrompt = (env.AGENT_SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT).trim();
 
+  // ---- LLM 後端選擇 ----
+  // 明示 LLM_PROVIDER 優先；沒有明示但設了 OPENAI_API_KEY 時自動切到 openai，
+  // 讓「填了 key 就能外接」成立。兩者都沒設 = Workers AI（免金鑰）。
+  const providerRaw = (env.LLM_PROVIDER ?? "").trim().toLowerCase();
+  let provider: LlmProvider = "workers-ai";
+  if (providerRaw === "" || providerRaw === "workers-ai" || providerRaw === "workersai") {
+    provider = "workers-ai";
+  } else if (providerRaw === "openai" || providerRaw === "openai-compatible") {
+    provider = "openai";
+  } else {
+    warnings.push(
+      `LLM_PROVIDER="${env.LLM_PROVIDER}" 無效（只支援 workers-ai | openai），改用 workers-ai`
+    );
+  }
+  if (provider === "workers-ai" && (env.OPENAI_API_KEY ?? "").trim()) {
+    provider = "openai";
+  }
+
+  const apiKey = (env.OPENAI_API_KEY ?? "").trim();
+  const baseUrl = (env.OPENAI_BASE_URL ?? "").trim() || "https://api.openai.com/v1";
+
+  if (provider === "openai") {
+    if (!apiKey) {
+      throw new AppError(
+        "internal_error",
+        "LLM 後端設為 openai 但缺少 OPENAI_API_KEY。請用 `wrangler secret put OPENAI_API_KEY` 設定，或移除 LLM_PROVIDER/OPENAI_API_KEY 改用 Workers AI。"
+      );
+    }
+    if (model.startsWith("@cf/")) {
+      throw new AppError(
+        "internal_error",
+        "使用 OpenAI 相容端點時，AGENT_MODEL 必須改成該端點提供的模型名（例如 gpt-4o-mini），不能沿用 Workers AI 的 @cf/... 模型 id。"
+      );
+    }
+  }
+
   return {
     environment: (env.ENVIRONMENT ?? "development").trim(),
     llm: {
+      provider,
       model,
+      baseUrl,
+      apiKey,
       systemPrompt,
       temperature: parseFloatWith(env.LLM_TEMPERATURE, 0.3, 0, 2, "LLM_TEMPERATURE", warnings),
       topP: parseFloatWith(env.LLM_TOP_P, 1, 0, 1, "LLM_TOP_P", warnings),

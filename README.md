@@ -146,7 +146,10 @@ NDJSON 結構化日誌（`ts`/`level`/`msg` + 上下文欄位），自動遮罩�
 |------|------|------|
 | `ENVIRONMENT` | `development` | 環境標籤，進入日誌 |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
-| `AGENT_MODEL` | `@cf/moonshotai/kimi-k2.7-code` | Workers AI 模型 id |
+| `LLM_PROVIDER` | `workers-ai` | LLM 後端：`workers-ai`（用 `AI` binding，免金鑰）或 `openai`（任何 OpenAI 相容端點）。**設了 `OPENAI_API_KEY` 即自動切換成 `openai`** |
+| `AGENT_MODEL` | `@cf/moonshotai/kimi-k2.7-code` | 模型 id。Workers AI 用 `@cf/...`；接 OpenAI 相容端點時改填該端點的模型名（例如 `gpt-4o-mini`） |
+| `OPENAI_API_KEY` | 空 | OpenAI 相容端點的 API key（**secret**，`wrangler secret put`） |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 相容端點 base URL，可換 Azure / vLLM / One-API / 自建服務 |
 | `AGENT_SYSTEM_PROMPT` | 內建 | 覆蓋 system prompt（影響最大的單一調整） |
 | `LLM_TEMPERATURE` / `LLM_TOP_P` | 模型預設 | 採樣參數 |
 | `LLM_MAX_OUTPUT_TOKENS` | 不限 | 輸出 token 上限 |
@@ -167,7 +170,21 @@ NDJSON 結構化日誌（`ts`/`level`/`msg` + 上下文欄位），自動遮罩�
 | `API_MAX_MESSAGES` | `100` | 單一 API 請求最大訊息數 |
 | `API_MAX_CONTENT_CHARS` | `64000` | 單則訊息最大字數 |
 
-secrets（用 `wrangler secret put`，不要放 vars）：`ADMIN_SECRET`（管理端點保護）、各 provider 的 API key（若不用 Workers AI）。
+secrets（用 `wrangler secret put`，不要放 vars）：`ADMIN_SECRET`（管理端點保護）、`OPENAI_API_KEY`（只有接 OpenAI 相容端點時需要）。
+
+### 外接 OpenAI 相容端點（自选模型/便宜模型）
+
+預設用 Workers AI（`AI` binding，免金鑰、計費挂 Cloudflare 帳號）。要換成自己的 OpenAI 相容端點：
+
+```bash
+wrangler secret put OPENAI_API_KEY      # 該端點的 API key
+wrangler deploy                          # 並在 wrangler.jsonc [vars] 或 Dashboard 設定：
+#   LLM_PROVIDER = "openai"
+#   OPENAI_BASE_URL = "https://your-endpoint/v1"
+#   AGENT_MODEL = "gpt-4o-mini"          # 端點提供的模型名，不能再用 @cf/...
+```
+
+只設 `OPENAI_API_KEY`（不設 `LLM_PROVIDER`）也會自動切換。UI 聊天與 `/v1/chat/completions` 兩條路徑共用同一個後端設定，行為一致。
 
 ## Long conversations: what actually happens
 
@@ -215,16 +232,19 @@ export default myGroup;
 
 ## Using a different model provider
 
-預設走 Workers AI（不需第三方 API key）。要換供應商就在 `src/agent/chat-agent.ts` 裡替換 model：
+**不用改 code。** 預設走 Workers AI（不需第三方 API key）。
+要接任何 OpenAI 相容端點，只設環境變數即可（見上方[配置變數](#configuration-variables)）：
 
 ```bash
-npm install @ai-sdk/openai     # 或 @ai-sdk/anthropic
+wrangler secret put OPENAI_API_KEY        # 端點的 API key
+# 再設定（wrangler.jsonc [vars] 或 Dashboard）：
+#   LLM_PROVIDER   = "openai"             # 不設也行：有 OPENAI_API_KEY 即自動切換
+#   OPENAI_BASE_URL = "https://your-endpoint/v1"
+#   AGENT_MODEL    = "gpt-4o-mini"         # 端點提供的模型名
 ```
-```ts
-import { openai } from "@ai-sdk/openai";
-// const model = openai("gpt-5.2");
-```
-再用 `wrangler secret put OPENAI_API_KEY` 放入金鑰（不要寫進 `[vars]`）。
+
+適用於任何 OpenAI 相容服務：OpenAI 官方、Azure OpenAI、vLLM、Ollama（開 /v1 相容）、One-API 等。
+若日後要接**非** OpenAI 相容的 provider（如原生 Anthropic），才需要在 `src/lib/model.ts` 的 `createLlmModel()` 裡加一個分支。
 
 ## Deploy
 
@@ -235,8 +255,8 @@ wrangler d1 create prod-agent-db      # 把回傳的 database_id 填入 wrangler
 wrangler d1 execute prod-agent-db --remote --file=./schema.sql
 
 # App 機密：從 stdin 讀取，不會出現在終端機歷史或程式碼裡
-wrangler secret put OPENAI_API_KEY
 wrangler secret put ADMIN_SECRET
+wrangler secret put OPENAI_API_KEY    # 只有外接 OpenAI 相容端點時需要
 
 git add wrangler.jsonc
 git commit -m "chore: bind D1 database"

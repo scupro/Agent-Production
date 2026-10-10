@@ -1,14 +1,18 @@
 # 本機開發環境變數範本：cp .dev.vars.example .dev.vars 後填入真實值
-# 注意：wrangler.jsonc 的 [vars] 只放「非機密」預設值；
-#       機密（API 金鑰、ADMIN_SECRET）請用 `wrangler secret put`。
+# 注意：wrangler.jsonc 只放「非機密」預設值；
+#       機密（OPENAI_API_KEY、ADMIN_SECRET）請用 `wrangler secret put`。
 
-# LLM（OpenAI 相容端點）
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=gpt-4o-mini
+# ===== LLM 後端（預設 workers-ai，免金鑰） =====
+# 想外接任何 OpenAI 相容端點：設 LLM_PROVIDER=openai + OPENAI_API_KEY，
+# 再用 AGENT_MODEL 指定該端點的模型名（例如 gpt-4o-mini）。
+# LLM_PROVIDER=workers-ai
+# AGENT_MODEL=@cf/moonshotai/kimi-k2.7-code
 
-# API key 認證（留空 = 關掉 /v1 認證，僅限開發）
+# ===== 外接 OpenAI 相容端點（選用） =====
+# OPENAI_API_KEY=sk-...
+# OPENAI_BASE_URL=https://api.openai.com/v1   # 可換 Azure / vLLM / One-API / 自建
+
+# 認證（留空 = 關掉 /v1 認證，僅限開發）
 API_KEY_HEADER=x-api-key
 ALLOW_QUERY_TOKEN=false
 ALLOW_BEARER_TOKEN=false

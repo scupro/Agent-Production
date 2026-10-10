@@ -7,7 +7,6 @@ import {
   streamText,
   type ModelMessage
 } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
 
 import { resolveConfig, type AgentConfig } from "../lib/config.ts";
 import { AppError } from "../lib/errors.ts";
@@ -25,6 +24,7 @@ import {
   toModelMessages,
   type ChatCompletionRequest
 } from "../lib/openai.ts";
+import { createLlmModel } from "../lib/model.ts";
 import { CircuitBreaker, mergeSignals, withRetry } from "../lib/resilience.ts";
 import { buildToolSet } from "../tools/index.ts";
 import type { AgentCapabilities, ToolContext } from "../tools/types.ts";
@@ -184,8 +184,7 @@ export class ChatAgent extends AIChatAgent<WorkerEnv> {
    */
   private async runTurn(options: TurnOptions): Promise<TurnResult> {
     const { llm } = this.config;
-    const workersai = createWorkersAI({ binding: this.env.AI });
-    const model = workersai(llm.model, { sessionAffinity: this.sessionAffinity });
+    const model = createLlmModel(this.config, this.env, this.sessionAffinity);
 
     const ctx = this.toolContext(options.interactive, options.signal);
     const { tools, report } = buildToolSet(ctx);
