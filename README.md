@@ -286,15 +286,18 @@ git commit -m "chore: bind D1 database"
 
 如果你用 dashboard 的 Settings → Builds 連接 repo，指令要**手動填兩格**:
 
+本倉庫採用**零建置部署模式**：前端建置產物 `dist/client/` 已提交進 repo，
+`wrangler.jsonc` 的 `assets.directory` 直接指向它。面板 Builds **不需要跑任何前端建置**:
+
 | 欄位 | 建議填 |
 |------|--------|
-| **Build command** | `npm ci && npx vite build`（用 `npx` 直接呼叫 vite，不依賴 `package.json` script 與 commit 新舊） |
+| **Build command** | `npm ci`（只裝依賴讓 wrangler 用本地版；也可留空） |
 | **Deploy command** | `npx wrangler deploy`（預設值） |
 | **Preview command** | 留預設 `npx wrangler preview`（非 production 分支才會跑） |
 
-> 避免填 `npm run build`：它要求「build 當下 checkout 的那個 commit」的 package.json 裡存在 build 條目。
-> 修復推上去之後，舊的 build 記錄／重建部署前的 webhook 仍可能抓舊 commit 重跑，出「Missing script」
-> 這種誤導性錯誤。`npx vite build` 則與 commit 內容無關，任何版本都能建。
+> ⚠️ **代價**：改了前端代碼（`src/`、`index.html`、樣式）後，**必須本地 `npm run build` 並把新的 `dist/client/` 一起 commit**,否則面板部署出去的是舊前端。
+> GitHub Actions 那條路徑（`npm ci && npm run build`）則每次都會重新建置，不受此限。
+> 若嫌麻煩，改回「服務器建置」模式：Build command 填 `npm ci && npx vite build`、把 `assets.directory` 改回 `./public`、並將 `dist/*` 重新 gitignore 即可。
 
 **為什麼面板「讀不到」repo 裡的指令**（設計如此，不是 bug):
 

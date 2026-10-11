@@ -89,7 +89,10 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+
+# 建置產物：只提交 dist/client（面板 Builds 零建置部署用），其餘排除
+dist/*
+!dist/client/
 
 # Gatsby files
 .cache/
