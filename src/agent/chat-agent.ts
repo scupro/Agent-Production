@@ -135,7 +135,7 @@ export class ChatAgent extends AIChatAgent<WorkerEnv> {
     }
   }
 
-  /** 讓 promise 在 DO 生命週期內完成，不会因为 request 結束而被砍掉。 */
+  /** 讓 promise 在 DO 生命週期內完成，不會因為 request 結束而被砍掉。 */
   private ctxWait(promise: Promise<unknown>) {
     this.ctx.waitUntil(promise);
   }
@@ -202,7 +202,7 @@ export class ChatAgent extends AIChatAgent<WorkerEnv> {
       interactive: options.interactive
     });
 
-    // 模型侧 timeout：用 AbortSignal 而不是 promise 竞速，确保子請求会被真的取消。
+    // 模型側 timeout：用 AbortSignal 而不是 promise 競速，確保子請求會被真的取消。
     const signal = mergeSignals(
       options.signal,
       AbortSignal.timeout(llm.timeoutMs)
@@ -576,7 +576,7 @@ export class ChatAgent extends AIChatAgent<WorkerEnv> {
   // -------------------------------------------------------------------------
 
   /**
-   * 讓别的 agent 用 RPC 取得一次完整的回覆（包含工具執行）。
+   * 讓別的 agent 用 RPC 取得一次完整的回覆（包含工具執行）。
    * 走 SDK 的 programmatic turn，所以結果會進這個 session 的歷史。
    */
   @callable()
@@ -644,8 +644,8 @@ export class ChatAgent extends AIChatAgent<WorkerEnv> {
   // -------------------------------------------------------------------------
 
   /**
-   * 排程觸發时的實際工作。這裡示範「做工作 + 通知 client」的正確模式：
-   *  - 用 broadcast 而不是寫進 chat history（否则模型會把通知當成新的上下文
+   * 排程觸發時的實際工作。這裡示範「做工作 + 通知 client」的正確模式：
+   *  - 用 broadcast 而不是寫進 chat history（否則模型會把通知當成新的上下文
    *    重複觸發同一個任務）
    *  - 用重試包住，失敗時也通知 client，不會靜默失敗
    */

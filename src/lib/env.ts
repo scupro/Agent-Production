@@ -2,7 +2,7 @@
  * 生產環境的 binding / 變數型別。
  *
  * `env.d.ts` 是由 `wrangler types` 產生的，內容只包含 `AI` 與 `ChatAgent`。
- * 這裡以 interface extension 的方式補上生产化新增的 binding，避免每次改
+ * 這裡以 interface extension 的方式補上生產化新增的 binding，避免每次改
  * wrangler 設定就要重新產生檔案造成衝突。
  */
 
@@ -47,7 +47,7 @@ export interface ProductionVars {
   TOOL_TIMEOUT_MS?: string;
   /** 外部 HTTP 呼叫重試次數上限。 */
   TOOL_MAX_RETRIES?: string;
-  /** http_fetch 工具允许的域名白名單（逗號分隔）。 */
+  /** http_fetch 工具允許的域名白名單（逗號分隔）。 */
   HTTP_ALLOWED_HOSTS?: string;
   /** 要自動連線的 MCP server（逗號分隔 URL）。 */
   MCP_SERVERS?: string;

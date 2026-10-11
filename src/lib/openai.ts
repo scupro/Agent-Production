@@ -362,7 +362,7 @@ export function sseResponse(
       }
     },
     cancel() {
-      // 客戶端斷線：generator 由 for-await 的 return() 结束，LLM 側靠 abort 取消。
+      // 客戶端斷線：generator 由 for-await 的 return() 結束，LLM 側靠 abort 取消。
       void generator.return();
     }
   });

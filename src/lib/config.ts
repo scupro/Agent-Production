@@ -36,7 +36,7 @@ export interface ToolsConfig {
   enabled: ToolName[];
   timeoutMs: number;
   maxRetries: number;
-  /** http_fetch 的域名白名單；空数组代表只允許公網且非封鎖清單的來源。 */
+  /** http_fetch 的域名白名單；空陣列代表只允許公網且非封鎖清單的來源。 */
   allowedHosts: string[];
 }
 

@@ -30,7 +30,7 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
 
 /**
  * 應用層錯誤。所有可預期的失敗都包成 AppError，
- * 这样 HTTP 層可以一致地面對，不會把 stack trace 外洩給呼叫端。
+ * 這樣 HTTP 層可以一致地面對，不會把 stack trace 外洩給呼叫端。
  */
 export class AppError extends Error {
   readonly code: ErrorCode;

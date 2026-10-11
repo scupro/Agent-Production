@@ -8,10 +8,10 @@ import type { ToolGroup } from "./types.ts";
 /**
  * 讓模型可以抓網頁/API 的工具，安全邊界全部在 guardedFetch 裡：
  *   - 僅 https
- *   - 需通过域名白名單（HTTP_ALLOWED_HOSTS）
- *   - 拒绝内網 / metadata 位址
+ *   - 需通過域名白名單（HTTP_ALLOWED_HOSTS）
+ *   - 拒絕內網 / metadata 位址
  *   - 重導向逐跳重新驗證
- *   - 回應大小與時間都有硬上限（避免把 128MB 的 isolate 塞爆或撑爆 context）
+ *   - 回應大小與時間都有硬上限（避免把 128MB 的 isolate 塞爆或撐爆 context）
  */
 
 /** 單一抓取最多餵給模型的字數。再大就截斷，讓模型知道要去問或分段抓。 */

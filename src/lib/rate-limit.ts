@@ -104,7 +104,7 @@ export async function enforceRateLimit(
 }
 
 /**
- * 依位址的粗粒度保護：用在尚未通過认证的請求（例如暴力猜 key）。
+ * 依位址的粗粒度保護：用在尚未通過認證的請求（例如暴力猜 key）。
  * 這不是嚴格限流，只是讓攻擊成本變高。
  */
 export function clientIpBucket(request: Request): string {

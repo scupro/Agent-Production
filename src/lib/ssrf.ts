@@ -6,7 +6,7 @@ import { AppError } from "./errors.ts";
  *
  * 防禦點：
  *  1. 只允許 https（除非明確放寬）
- *  2. 拒绝 IP 字面量指向 loopback / private / link-local / 多播 / 中繼
+ *  2. 拒絕 IP 字面量指向 loopback / private / link-local / 多播 / 中繼
  *  3. 拒絕 .localhost / .internal / .local 等內部解析域名
  *  4. 拒絕雲供應商 metadata 端點
  *  5. 白名單優先：一旦設定 allowedHosts，其他一律拒絕
@@ -280,7 +280,7 @@ async function readCappedText(
 
       received += value.byteLength;
       if (received >= maxBytes) {
-        // 只保留不超過上限的那一段，其餘丢掉並停止閱讀。
+        // 只保留不超過上限的那一段，其餘丟掉並停止閱讀。
         const allowed = value.byteLength - (received - maxBytes);
         if (allowed > 0) chunks.push(decoder.decode(value.subarray(0, allowed), { stream: false }));
         truncated = true;

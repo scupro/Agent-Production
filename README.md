@@ -21,7 +21,7 @@ npm install
 wrangler d1 create prod-agent-db          # 把回傳的 database_id 填入 wrangler.jsonc
 wrangler d1 execute prod-agent-db --local --file=./schema.sql
 
-# 產生一組 API key（會印出明文，只显示一次，請自行保存）
+# 產生一組 API key（會印出明文，只顯示一次，請自行保存）
 wrangler dev --remote                      # 另開終端機執行
 curl -X POST http://localhost:8787/v1/admin/keys \
   -H "x-admin-secret: $ADMIN_SECRET" \
@@ -109,12 +109,12 @@ wrangler.jsonc
 - **Cloudflare Access 支援**：設定 `CF_ACCESS_JWT_AUD` 後，`/agents/*` 瀏覽器流量可用 Access 身分取代自建登入。
 - **Rate limiting**：每分鐘請求數限制，超限回 `429` + `Retry-After`。未通過認證的請求也走 IP bucket，提高暴力猜鑰成本。
 - **SSRF 防護**：`http_fetch` 與所有模型可控 URL 一律經 `guardedFetch`——僅 HTTPS、域名白名單、拒絕 loopback/RFC1918/CGNAT/link-local/multicast/雲 metadata、`.local`/`.internal` 等內部 TLD，且**手動逐跳跟隨重導向並重新驗證**（否則 302 就能繞過全部檢查）。
-- **Payload 防禦**：訊息數量與單則字數上限、回應大小硬上限、错误不外洩 stack trace。
+- **Payload 防禦**：訊息數量與單則字數上限、回應大小硬上限、錯誤不外洩 stack trace。
 - **CORS**：預設封閉，靠 `ALLOWED_ORIGINS` 白名單放行。
 
 ### 🔄 可靠性
 - `withTimeout` 包住每一次 LLM 與工具呼叫，超時不再無限掛住 turn。
-- `withRetry` 指數退避 + jitter，只对可重試錯誤（5xx/429/網路层）生效；4xx 立即失敗不浪費配額。
+- `withRetry` 指數退避 + jitter，只對可重試錯誤（5xx/429/網路層）生效；4xx 立即失敗不浪費配額。
 - `CircuitBreaker` 隔開持續故障的上游，避免雪崩。
 - 工具初始化或單一群組載入失敗**不會**讓整個 agent 起不來，只會記在 load report 裡。
 - 排程任務失敗有重試預算；用 `broadcast()` 而非 `saveMessages()` 通知，避免 AI 把通知當新 context 重複觸發同一任務而死迴圈。
@@ -172,9 +172,9 @@ NDJSON 結構化日誌（`ts`/`level`/`msg` + 上下文欄位），自動遮罩�
 
 secrets（用 `wrangler secret put`，不要放 vars）：`ADMIN_SECRET`（管理端點保護）、`OPENAI_API_KEY`（只有接 OpenAI 相容端點時需要）。
 
-### 外接 OpenAI 相容端點（自选模型/便宜模型）
+### 外接 OpenAI 相容端點（自選模型／便宜模型）
 
-預設用 Workers AI（`AI` binding，免金鑰、計費挂 Cloudflare 帳號）。要換成自己的 OpenAI 相容端點：
+預設用 Workers AI（`AI` binding，免金鑰、計費掛 Cloudflare 帳號）。要換成自己的 OpenAI 相容端點：
 
 ```bash
 wrangler secret put OPENAI_API_KEY      # 該端點的 API key
@@ -282,6 +282,31 @@ git commit -m "chore: bind D1 database"
 
 **不需要**把 `OPENAI_API_KEY` / `ADMIN_SECRET` 放進 GitHub secret —— 它們已用 `wrangler secret put` 存在 Worker 上，每次部署都會保留。
 
+### Cloudflare 面板 Builds（Git 整合）
+
+如果你用 dashboard 的 Settings → Builds 連接 repo，指令要**手動填兩格**:
+
+| 欄位 | 建議填 |
+|------|--------|
+| **Build command** | `npm ci && npm run build` |
+| **Deploy command** | `npx wrangler deploy`（預設值；若 `package.json` 有 deploy script，填 `npm run deploy` 亦可一條龍） |
+| **Preview command** | 留預設 `npx wrangler preview`（非 production 分支才會跑） |
+
+**為什麼面板「讀不到」repo 裡的指令**（設計如此，不是 bug):
+
+- Workers Builds 只認面板輸入的指令，**不會**讀 `package.json` 的 `scripts`。
+- **不會**執行 wrangler 設定檔裡的 Custom Builds（官方文件明言 Workers Builds 不支援）。
+- 只有 repo **沒有** wrangler 設定檔時，連線流程才會觸發 autoconfig 偵測框架；本模板有 `wrangler.jsonc`,會被跳過——Build command 維持空白、Deploy command 用預設。
+- 預設組合 = 只跑 `wrangler deploy`:沒有 `vite build` 就不會產生 `dist/client` 與 `.wrangler/deploy/config.json`,靜態資產只剩 `./public` 的 favicon,網頁全部 404。**Build command 必填。**
+
+**其他面板部署注意事項**:
+
+- **Worker 名稱必須一致**：dashboard 上的 Worker 名要等於 `wrangler.jsonc` 的 `"name"`(目前 `agent-starter`),不符會直接 fail。
+- **別與 GitHub Actions 雙開**：兩邊都接同一 repo 會在 push 時搶部署。面板 Builds 和 Actions 擇一，另一個要中斷連線／移除 workflow。
+- **面板 Builds 不會跑 D1 schema**:`schema.sql` 需自行執行一次（`wrangler d1 execute prod-agent-db --remote --file=./schema.sql --yes`)。
+- **Runtime 機密放 Settings → Variables & Secrets**,不是 Build variables——build vars 只在建置期可見，Worker 執行期拿不到。
+- 存檔只套用到**下一次** build;Retry 舊 build 讀的是重試當下的設定。
+
 ### 手動部署（本機）
 
 ```bash
@@ -294,7 +319,7 @@ Agent 就上線於 Cloudflare 全球網路：訊息存 SQLite、串流斷線可�
 
 Workers **Free** plan 也能跑：Durable Objects 的 SQLite backend 在 Free 方案可用，而 Free 唯一不支援的是 legacy key-value backend（本專案沒用到）。要注意的免費額度上限是每日 100,000 requests、13,000 GB-s duration、5 million rows read / 100,000 rows written、5 GB 儲存。
 
-實務提醒：WebSocket 保持連線期間會持續計 duration，長期在線的使用者多的話费用会长得比預期快 —— 若要放大規模建議搭配 WebSocket Hibernation 或直接上 Paid plan。另外 SQLite 儲存的計費自 2026-01 起開始生效。
+實務提醒：WebSocket 保持連線期間會持續計 duration，長期在線的使用者多的話費用會長得比預期快 —— 若要放大規模建議搭配 WebSocket Hibernation 或直接上 Paid plan。另外 SQLite 儲存的計費自 2026-01 起開始生效。
 
 ## Learn more
 

@@ -32,7 +32,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
-/** 平等分配 ±20% 抖動，避免大量 client 同步重試造成惊群效應。 */
+/** 平等分配 ±20% 抖動，避免大量 client 同步重試造成驚群效應。 */
 function jitter(delay: number): number {
   const factor = 0.8 + Math.random() * 0.4;
   return Math.round(delay * factor);
@@ -87,8 +87,8 @@ export async function withRetry<T>(
 }
 
 /**
- * 幫一個 promise 加上的 timeout。用 AbortSignal 而非 setTimeout 竞速，
- * 这样被timeout 的 fetch 也能真正取消，不會殘留計費中的子請求。
+ * 幫一個 promise 加上的 timeout。用 AbortSignal 而非 setTimeout 競速，
+ * 這樣被 timeout 的 fetch 也能真正取消，不會殘留計費中的子請求。
  */
 export async function withTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
