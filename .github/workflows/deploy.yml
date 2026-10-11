@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # vite build 產出 dist/client（前端）+ dist/agent_starter（worker bundle),
+      # 並寫 .wrangler/deploy/config.json 讓後續 `wrangler deploy` 使用正確資產。
+      # 沒有這一步，部署出去的 assets 只有 ./public（favicon）,網頁會 404。
+      - name: Build
+        run: npm run build
+
       - name: Apply D1 schema (idempotent)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
