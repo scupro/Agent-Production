@@ -305,7 +305,8 @@ git commit -m "chore: bind D1 database"
 - **別與 GitHub Actions 雙開**：兩邊都接同一 repo 會在 push 時搶部署。面板 Builds 和 Actions 擇一，另一個要中斷連線／移除 workflow。
 - **面板 Builds 不會跑 D1 schema**:`schema.sql` 需自行執行一次（`wrangler d1 execute prod-agent-db --remote --file=./schema.sql --yes`)。
 - **Runtime 機密放 Settings → Variables & Secrets**,不是 Build variables——build vars 只在建置期可見，Worker 執行期拿不到。
-- 存檔只套用到**下一次** build;Retry 舊 build 讀的是重試當下的設定。
+- 存檔只套用到**下一次** build;**Retry 會重放「該次 build 當初的 commit」,不是分支最新頭**——修好程式碼後按 Retry 仍會看到舊錯誤。要部署新代碼請推新 commit(或用 Builds 頁的 Deploy Hook 觸發一次全新 build)。
+- 若不想依賴 `package.json` 的 script 與 commit 新舊，Build command 可直接填 `npm ci && npx vite build`(繞過 `npm run build`)。
 
 ### 手動部署（本機）
 
