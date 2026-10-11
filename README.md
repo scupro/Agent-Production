@@ -288,9 +288,13 @@ git commit -m "chore: bind D1 database"
 
 | 欄位 | 建議填 |
 |------|--------|
-| **Build command** | `npm ci && npm run build` |
-| **Deploy command** | `npx wrangler deploy`（預設值；若 `package.json` 有 deploy script，填 `npm run deploy` 亦可一條龍） |
+| **Build command** | `npm ci && npx vite build`（用 `npx` 直接呼叫 vite，不依賴 `package.json` script 與 commit 新舊） |
+| **Deploy command** | `npx wrangler deploy`（預設值） |
 | **Preview command** | 留預設 `npx wrangler preview`（非 production 分支才會跑） |
+
+> 避免填 `npm run build`：它要求「build 當下 checkout 的那個 commit」的 package.json 裡存在 build 條目。
+> 修復推上去之後，舊的 build 記錄／重建部署前的 webhook 仍可能抓舊 commit 重跑，出「Missing script」
+> 這種誤導性錯誤。`npx vite build` 則與 commit 內容無關，任何版本都能建。
 
 **為什麼面板「讀不到」repo 裡的指令**（設計如此，不是 bug):
 
@@ -306,7 +310,6 @@ git commit -m "chore: bind D1 database"
 - **面板 Builds 不會跑 D1 schema**:`schema.sql` 需自行執行一次（`wrangler d1 execute prod-agent-db --remote --file=./schema.sql --yes`)。
 - **Runtime 機密放 Settings → Variables & Secrets**,不是 Build variables——build vars 只在建置期可見，Worker 執行期拿不到。
 - 存檔只套用到**下一次** build;**Retry 會重放「該次 build 當初的 commit」,不是分支最新頭**——修好程式碼後按 Retry 仍會看到舊錯誤。要部署新代碼請推新 commit(或用 Builds 頁的 Deploy Hook 觸發一次全新 build)。
-- 若不想依賴 `package.json` 的 script 與 commit 新舊，Build command 可直接填 `npm ci && npx vite build`(繞過 `npm run build`)。
 
 ### 手動部署（本機）
 
